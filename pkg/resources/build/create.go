@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -36,7 +35,7 @@ import (
 const uploadDoneTrigger = "/home/.sourceuploaddone"
 
 // Deploy uses Build structure to generate and deploy knative build
-func (b *Build) Deploy(clientset *client.ConfigSet) (string, error) {
+func (b *Build) Deploy(image string, clientset *client.ConfigSet) (string, error) {
 	build := &buildv1alpha1.Build{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Build",
@@ -114,16 +113,10 @@ func (b *Build) Deploy(clientset *client.ConfigSet) (string, error) {
 		duration = 10 * time.Minute
 	}
 
-	image, err := b.imageName(clientset)
-	if err != nil {
-		return "", fmt.Errorf("Composing service image name: %s", err)
-	}
-	tag := file.RandString(6)
-
 	build.Spec.Timeout = &metav1.Duration{Duration: duration}
 	build.Spec.Template = &buildv1alpha1.TemplateInstantiationSpec{
 		Name:      b.Buildtemplate,
-		Arguments: getBuildArguments(image, tag, b.Args),
+		Arguments: b.getBuildArguments(image),
 	}
 
 	if client.Dry {
@@ -149,7 +142,7 @@ func (b *Build) Deploy(clientset *client.ConfigSet) (string, error) {
 		}
 	}
 
-	return fmt.Sprintf("%s:%s", image, tag), nil
+	return image, nil
 }
 
 func mapFromSlice(slice []string) map[string]string {
@@ -371,52 +364,19 @@ func (b *Build) buildSpecLocalPath() buildv1alpha1.BuildSpec {
 	}
 }
 
-func getBuildArguments(image, tag string, buildArgs []string) []buildv1alpha1.ArgumentSpec {
+func (b *Build) getBuildArguments(image string) []buildv1alpha1.ArgumentSpec {
 	args := []buildv1alpha1.ArgumentSpec{
 		{
 			Name:  "IMAGE",
 			Value: image,
-		}, {
-			Name:  "TAG",
-			Value: tag,
 		},
 	}
-	for k, v := range mapFromSlice(buildArgs) {
+	for k, v := range mapFromSlice(b.Args) {
 		args = append(args, buildv1alpha1.ArgumentSpec{
 			Name: k, Value: v,
 		})
 	}
 	return args
-}
-
-func (b *Build) imageName(clientset *client.ConfigSet) (string, error) {
-	if len(b.RegistrySecret) == 0 {
-		return fmt.Sprintf("%s/%s/%s", b.Registry, b.Namespace, b.Name), nil
-	}
-	secret, err := clientset.Core.CoreV1().Secrets(b.Namespace).Get(b.RegistrySecret, metav1.GetOptions{})
-	if err != nil {
-		return "", err
-	}
-	data := secret.Data["config.json"]
-	dec := json.NewDecoder(strings.NewReader(string(data)))
-	var config registryAuths
-	if err := dec.Decode(&config); err != nil {
-		return "", err
-	}
-	if len(config.Auths) > 1 {
-		return "", errors.New("credentials with multiple registries not supported")
-	}
-	for k, v := range config.Auths {
-		if url, ok := gitlabEnv(); ok {
-			return fmt.Sprintf("%s/%s", url, b.Name), nil
-		}
-		return fmt.Sprintf("%s/%s/%s", k, v.Username, b.Name), nil
-	}
-	return "", errors.New("empty registry credentials")
-}
-
-func gitlabEnv() (string, bool) {
-	return os.LookupEnv("CI_REGISTRY_IMAGE")
 }
 
 func (b *Build) wait(build *buildv1alpha1.Build, clientset *client.ConfigSet) error {

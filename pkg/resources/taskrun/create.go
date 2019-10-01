@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -47,7 +46,7 @@ const (
 // Deploy prepares and verifies tekton resources (Task and PipelineResource) required for TaskRun,
 // creates TaskRun object and optionally waits for its result.
 // Deploy function returns resulting image URL and build error.
-func (tr *TaskRun) Deploy(clientset *client.ConfigSet) (string, error) {
+func (tr *TaskRun) Deploy(image string, clientset *client.ConfigSet) (string, error) {
 	if tr.Name == "" {
 		return "", fmt.Errorf("taskrun name cannot be empty")
 	}
@@ -62,14 +61,10 @@ func (tr *TaskRun) Deploy(clientset *client.ConfigSet) (string, error) {
 			return "", fmt.Errorf("setup pipelineresource: %s", err)
 		}
 	}
-	if err := tr.checkPipelineResource(clientset); err != nil {
+	err := tr.checkPipelineResource(clientset); 
+	if err != nil {
 		return "", fmt.Errorf("pipelineresource %q not found", tr.PipelineResource.Name)
 	}
-	image, err := tr.imageName(clientset)
-	if err != nil {
-		return "", fmt.Errorf("composing image name: %s", err)
-	}
-	image = fmt.Sprintf("%s:%s", image, file.RandString(6))
 	taskRunObject := tr.newTaskRun()
 	taskRunObject.Spec.Inputs.Params = tr.getBuildArguments(image)
 
@@ -278,37 +273,6 @@ func (tr *TaskRun) newTaskRun() *v1alpha1.TaskRun {
 		}
 	}
 	return taskrun
-}
-
-func (tr *TaskRun) imageName(clientset *client.ConfigSet) (string, error) {
-	if len(tr.RegistrySecret) == 0 {
-		return fmt.Sprintf("%s/%s/%s", tr.Registry, tr.Namespace, tr.Name), nil
-	}
-	secret, err := clientset.Core.CoreV1().Secrets(tr.Namespace).Get(tr.RegistrySecret, metav1.GetOptions{})
-	if err != nil {
-		return "", err
-	}
-	data := secret.Data["config.json"]
-	dec := json.NewDecoder(strings.NewReader(string(data)))
-	var config registryAuths
-	if err := dec.Decode(&config); err != nil {
-		return "", err
-	}
-	if len(config.Auths) > 1 {
-		return "", errors.New("credentials with multiple registries not supported")
-	}
-	for k, v := range config.Auths {
-		if url, ok := gitlabEnv(); ok {
-			return fmt.Sprintf("%s/%s", url, tr.Name), nil
-		}
-		return fmt.Sprintf("%s/%s/%s", k, v.Username, tr.Name), nil
-	}
-	return "", errors.New("empty registry credentials")
-}
-
-// hack to use correct username in image URL instead of "gitlab-ci-token" in Gitlab CI
-func gitlabEnv() (string, bool) {
-	return os.LookupEnv("CI_REGISTRY_IMAGE")
 }
 
 func (tr *TaskRun) wait(clientset *client.ConfigSet) error {

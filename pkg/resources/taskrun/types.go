@@ -42,13 +42,13 @@ type Source struct {
 	Revision string
 }
 
-type registryAuths struct {
-	Auths registry
-}
+// type registryAuths struct {
+// 	Auths registry
+// }
 
-type credentials struct {
-	Username string
-	Password string
-}
+// type credentials struct {
+// 	Username string
+// 	Password string
+// }
 
-type registry map[string]credentials
+// type registry map[string]credentials

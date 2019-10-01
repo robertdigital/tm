@@ -29,13 +29,13 @@ type Build struct {
 	Wait           bool
 }
 
-type registryAuths struct {
-	Auths registry
-}
+// type registryAuths struct {
+// 	Auths registry
+// }
 
-type registry map[string]credentials
+// type registry map[string]credentials
 
-type credentials struct {
-	Username string
-	Password string
-}
+// type credentials struct {
+// 	Username string
+// 	Password string
+// }

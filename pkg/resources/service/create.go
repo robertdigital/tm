@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"os"
 	"regexp"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	servingv1alpha1 "github.com/knative/serving/pkg/apis/serving/v1alpha1"
 	servingv1beta1 "github.com/knative/serving/pkg/apis/serving/v1beta1"
 	"github.com/triggermesh/tm/pkg/client"
+	"github.com/triggermesh/tm/pkg/file"
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,9 +63,16 @@ func (s *Service) Deploy(clientset *client.ConfigSet) (string, error) {
 			}
 		}()
 
-		if image, err = builder.Deploy(clientset); err != nil {
-			return "", fmt.Errorf("Deploying builder: %s", err)
+		if image, err = s.imageName(clientset); err != nil {
+			return "", fmt.Errorf("image name composing error: %v", err)
 		}
+		image = fmt.Sprintf("%s:%s", image, file.RandString(6))
+		// TODO add results channel
+		go func() {
+			if _, err = builder.Deploy(image, clientset); err != nil {
+				fmt.Printf("Deploying builder: %s", err)
+			}
+		}()
 	}
 
 	configuration := servingv1alpha1.ConfigurationSpec{
@@ -128,6 +138,7 @@ func (s *Service) Deploy(clientset *client.ConfigSet) (string, error) {
 		return fmt.Sprintf("Deployment started. Run \"tm -n %s describe service %s\" to see details", s.Namespace, s.Name), nil
 	}
 
+	// TODO Add build step results wait
 	fmt.Printf("Waiting for service %q ready state\n", s.Name)
 	domain, err := s.wait(clientset)
 	return fmt.Sprintf("Service %s URL: %s", s.Name, domain), err
@@ -246,4 +257,35 @@ func (s *Service) wait(clientset *client.ConfigSet) (string, error) {
 			}
 		}
 	}
+}
+
+func (s *Service) imageName(clientset *client.ConfigSet) (string, error) {
+	if len(s.RegistrySecret) == 0 {
+		return fmt.Sprintf("%s/%s/%s", s.Registry, s.Namespace, s.Name), nil
+	}
+	secret, err := clientset.Core.CoreV1().Secrets(s.Namespace).Get(s.RegistrySecret, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	data := secret.Data["config.json"]
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	var config registryAuths
+	if err := dec.Decode(&config); err != nil {
+		return "", err
+	}
+	if len(config.Auths) > 1 {
+		return "", errors.New("credentials with multiple registries not supported")
+	}
+	for k, v := range config.Auths {
+		if url, ok := gitlabEnv(); ok {
+			return fmt.Sprintf("%s/%s", url, s.Name), nil
+		}
+		return fmt.Sprintf("%s/%s/%s", k, v.Username, s.Name), nil
+	}
+	return "", errors.New("empty registry credentials")
+}
+
+// hack to use correct username in image URL instead of "gitlab-ci-token" in Gitlab CI
+func gitlabEnv() (string, bool) {
+	return os.LookupEnv("CI_REGISTRY_IMAGE")
 }

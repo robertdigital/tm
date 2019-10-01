@@ -99,7 +99,7 @@ func cmdDeployBuild(clientset *client.ConfigSet) *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			b.Name = args[0]
 			b.Namespace = client.Namespace
-			if _, err := b.Deploy(clientset); err != nil {
+			if _, err := b.Deploy("", clientset); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Build created")
@@ -182,7 +182,7 @@ func cmdDeployTaskRun(clientset *client.ConfigSet) *cobra.Command {
 			tr.Namespace = client.Namespace
 			tr.Registry = client.Registry
 			tr.Wait = client.Wait
-			_, err := tr.Deploy(clientset)
+			_, err := tr.Deploy("", clientset)
 			if err != nil {
 				log.Fatal(err)
 			}

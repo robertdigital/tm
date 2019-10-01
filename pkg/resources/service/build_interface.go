@@ -31,7 +31,7 @@ import (
 // Builder interface contains image build methods which are common for both
 // tekton pipelines and knative builds
 type Builder interface {
-	Deploy(clientset *client.ConfigSet) (string, error)
+	Deploy(image string, clientset *client.ConfigSet) (string, error)
 	SetOwner(clientset *client.ConfigSet, owner metav1.OwnerReference) error
 	Delete(clientset *client.ConfigSet) error
 }

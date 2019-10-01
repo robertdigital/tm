@@ -37,3 +37,15 @@ type Service struct {
 		Data     string
 	}
 }
+
+
+type registryAuths struct {
+	Auths registry
+}
+
+type credentials struct {
+	Username string
+	Password string
+}
+
+type registry map[string]credentials
