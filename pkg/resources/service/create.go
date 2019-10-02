@@ -36,16 +36,17 @@ import (
 
 // Deploy receives Service structure and generate knative/service object to deploy it in knative cluster
 func (s *Service) Deploy(clientset *client.ConfigSet) (string, error) {
-	var err error
 	service := &servingv1alpha1.Service{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Service",
 			APIVersion: "serving.knative.dev/v1alpha1",
 		},
 	}
-
+	
+	var err error
 	image := s.Source
 	builder := NewBuilder(clientset, s)
+	buildResult := make(chan error)
 
 	if builder != nil && !client.Dry {
 		defer func() {
@@ -67,12 +68,13 @@ func (s *Service) Deploy(clientset *client.ConfigSet) (string, error) {
 			return "", fmt.Errorf("image name composing error: %v", err)
 		}
 		image = fmt.Sprintf("%s:%s", image, file.RandString(6))
-		// TODO add results channel
 		go func() {
-			if _, err = builder.Deploy(image, clientset); err != nil {
-				fmt.Printf("Deploying builder: %s", err)
-			}
+			_, err = builder.Deploy(image, clientset)
+			buildResult <- err
+			close(buildResult)
 		}()
+	} else {
+		close(buildResult)
 	}
 
 	configuration := servingv1alpha1.ConfigurationSpec{
@@ -138,7 +140,14 @@ func (s *Service) Deploy(clientset *client.ConfigSet) (string, error) {
 		return fmt.Sprintf("Deployment started. Run \"tm -n %s describe service %s\" to see details", s.Namespace, s.Name), nil
 	}
 
-	// TODO Add build step results wait
+	
+	fmt.Printf("Waiting for base image %q readiness\n", image)
+	select {
+		case err := <- buildResult:
+			if err != nil {
+				return "", fmt.Errorf("Image build failed: %s", err)
+			}
+	}
 	fmt.Printf("Waiting for service %q ready state\n", s.Name)
 	domain, err := s.wait(clientset)
 	return fmt.Sprintf("Service %s URL: %s", s.Name, domain), err
